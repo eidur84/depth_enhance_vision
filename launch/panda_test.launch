@@ -1,0 +1,8 @@
+<?xml version="1.0" ?>
+<launch>
+
+	<!--<node pkg="auto_labeller" name="pick_and_place" type="pick_and_place.py" output="screen"/> Program that controls the robot manipulator-->
+	<node pkg="auto_labeller" name="v2pick_and_place" type="v2pick_and_place.py" output="screen"/> <!--Program that controls the robot manipulator-->
+    <node pkg="auto_labeller" name="v2find_pickpoint" type="v2find_pickpoint.py" output="screen"/> <!--Program that controls the robot manipulator-->
+
+</launch>
