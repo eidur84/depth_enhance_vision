@@ -1,0 +1,7 @@
+<?xml version="1.0" ?>
+<launch>
+	<!--<node pkg="rviz" type="rviz" name="rviz" args="-d $(find depth_enhance_vision)/launch/moveit.rviz" />--> <!--Launches RVIZ window-->
+	<!-- <include file="$(find depth_enhance_vision)/launch/rs_aligned_depth_d435.launch"></include> Realsense aligned depth node -->
+	
+	<node pkg="depth_enhance_vision" name="v2find_pickpoint" type="v2find_pickpoint.py" output="screen"/>
+</launch>
