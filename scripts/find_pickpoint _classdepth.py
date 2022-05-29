@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Import ROS libraries and messages
 
+# Import ROS libraries and messages
 import rospy
 from sensor_msgs.msg import Image, CameraInfo
 import pyrealsense2
@@ -16,9 +16,36 @@ import math
 import sys
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
-path = '/home/arono16/catkin_ws/src/neuralnet/'
+import os
+
+path = '/home/eidur14/trainedweights'
 print("Environment Ready")
 np.set_printoptions(threshold=np.inf)
+
+# Class name
+#classesFile = 'coco.names'
+#classNames = []
+
+#with open((path+classesFile), 'rt') as f:
+#    classNames = f.read().rstrip('\n').split('\n')
+#modelConfiguration ='/home/eidur14/catkin_ws/src/neuralnet/yolov4.cfg' #'yolov4.cfg' # 
+#modelConfiguration ='/home/arono16/yolo-obj_new.cfg' #'yolov4.cfg' # 
+#modelWeights ='/home/arono16/catkin_ws/src/neuralnet/yolov4.weights'
+modelWeights ='depthregression_second.onnx'
+
+modelpath=os.path.join(path,modelWeights)
+
+#modelConfiguration ='yolov4.cfg' 
+#modelWeights ='yolov4.weights' 
+
+#net = cv2.dnn.readNet((modelConfiguration), (modelWeights))
+net =  cv2.dnn.readNet(modelpath)
+#net = cv2.dnn.readNet((path+modelConfiguration), (path+modelWeights))
+net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+
+# Offset classes
+classes=['-20','-15','-10','-5','0','5','10','15','20','25','30']
 
 # Global variables
 counter = 0
@@ -28,8 +55,9 @@ timestart = time.time()
 timeend = 0.0
 elapsed = 0.0
 fpsAvg = np.zeros(10)
-wh = 416
-confThrsh = 0.5#0.95
+wh = 640
+confThrsh = 0.2 #0.95
+scoreThrsh = 0.3
 NMSThrs = 0.3
 boolNothing = 0
 #The box bounderies....
@@ -50,7 +78,10 @@ rospy.loginfo("Starting depth subscriber!")
 # Initialize the CvBridge class
 bridge = CvBridge()
 #ERRORY = 75#75 #pxl blue line 
-ERRORX = -12#-20#-10 #-20
+ERRORX = -12
+
+## Functions ##
+
 # Gets fps, uses average over 5 values
 def getFps(start, end, nrAvg):
     end = time.time()
@@ -67,7 +98,7 @@ def findObjects(frame,msg, aligned_info):
     global boolNothing, boolcounter
     boolNothing=0
     shortestdist = 1
-    pub = rospy.Publisher('pandaposition', PoseStamped, queue_size=5)
+    pub = rospy.Publisher('pickpoint', PoseStamped, queue_size=5)
     p = PoseStamped()
     p.header.frame_id = "/camera_color_frame" #"/panda_link8"
     blob = cv2.dnn.blobFromImage(frame, 1.0/255, (wh, wh), [0,0,0], 1, crop=False)
@@ -75,85 +106,88 @@ def findObjects(frame,msg, aligned_info):
     Layernames = net.getLayerNames()
     outputNames = [Layernames[i-1] for i in net.getUnconnectedOutLayers()]
     outputs = net.forward(outputNames)
+    rows=outputs[0].shape[1]
+    #outputs = net.forward()
     print ("size: ", frame.shape)
     hT, wT, c = frame.shape
+    xscale = wT/wh
+    yscale = hT/wh
     #print(frame.shape)
-  
+
     bbox = []
     classIdx = []
     conf = []
 
-    for output in outputs:
-        for det in output:
-            scores = det[5:] # skip the first 5 values
+    #for output in outputs:
+    #    for det in output:
+
+    for r in range(rows):
+        row=outputs[0][0][r]
+        confidence=row[4]
+        #print(classId)
+        if confidence > confThrsh:
+            scores = row[5:] # skip the first 5 values
             classId = np.argmax(scores)
-            
-            confidence = scores[classId]
-            if confidence > confThrsh:
-                w, h = int(det[2]*wT), int(det[3]*hT)
-                x, y = int((det[0]*wT) - w/2), int((det[1]*hT) - h/2)
+            class_score = scores[classId]
+                 
+            if class_score > scoreThrsh:
+                # w, h = int(det[2]*wT), int(det[3]*hT)
+                # x, y = int((det[0]*wT) - w/2), int((det[1]*hT) - h/2)
+                #w, h = int(row[2]*xscale), int(row[3]*yscale)
+                # Width and depth instead of width and height
+                w, h = int(row[2]*xscale), int(row[3]*yscale)
+                x, y = int((row[0]*xscale) - w/2), int((row[1]*yscale) - w/2)
+                #x, y = int((row[0]*xscale) - w/2), int((row[1]*yscale) - h/2)
                 bbox.append([x,y,w,h])
                 classIdx.append(classId)
                 conf.append(float(confidence)) 
     
     idc = cv2.dnn.NMSBoxes(bbox, conf, confThrsh, NMSThrs)
     for i in idc:
-        #i = i[0]
         box = bbox[i]
         x,y,w,h = box[0], box[1], box[2], box[3]
-        if(w > (0.80*wT) or h > (0.80*hT)):
-            continue
-        else:
-            xx = int(x+(w/2))# Center point of object
-            yy = int(y+(h/2))# Center point of object
-            center = (xx,yy)
-            #print("Center: ", center)
 
-            #depth = convert_depth_image(msg, xx+ERRORX, yy+ERRORY)
-            depth = convert_depth_image(msg, xx, yy)
-            #print(depth)  
+        # Square bounding box
+        xx = int(x+(w/2))# Center point of object
+        yy = int(y+(h/2))# Center point of object
+        center = (xx,yy)
+        #print("Center: ", center)
+
+        depth = convert_depth_image(msg, xx, yy)
+        #print(depth)  
+        
+        # Filter out vacuum bell detections
+        if(depth> 0.25 and yy<380):
             
-            # Filter out vacuum bell detections
-            if(depth> 0.25 and yy<380):
-                
-                # Puts in a circle where the center of the object is 
-                cv2.circle(frame, center, 5, (255, 0, 0), 2)
-                cv2.circle(frame, (x,y), 5, (255, 0, 0), 2)
-                cv2.rectangle(frame, (x,y), (x+w,y+h), (0,200,100), 1)
-                #boxsize = "w%d h:%d" %(w,h)
-                coordinates= "x%d y:%d" %(xx,yy)
-                curr = (x+20,y+20)
-                #cv2.putText(frame,boxsize,curr, font, 1,(200,100,255),2,cv2.LINE_4)
-                #disttext = "%Z:.3fm" %(Z)
-                cv2.putText(frame,coordinates,(xx,yy), font, 1,(255,100,255),2,cv2.LINE_4)
-                if(depth < shortestdist):
-                    shortestdist = depth
-                    # convert depth to real
-                    #X,Y,Z = convert_depth_to_phys_coord_using_realsense((xx+ERRORX),(yy+ERRORY),depth,aligned_info)
-                    X,Y,Z = convert_depth_to_phys_coord_using_realsense((xx+ERRORX),(yy),depth,aligned_info)  
-                    currxx = xx
-                    curryy = yy
-                    conftext = "conf:%.3f" %(conf[i]*100)
-                    #send to a topic
-                    p.header.stamp = rospy.Time.now()
-                    p.pose.position.x = X
-                    p.pose.position.y = Y
-                    p.pose.position.z = Z
-                    p.pose.orientation.x = x #sending the lower left x coordinate of the box to robot
-                    p.pose.orientation.y = y #sending the lower left y coordinate of the box to robot
-                    p.pose.orientation.z = w #sending the width of the box to robot
-                    p.pose.orientation.w = h #sending the height of the box to robot
-    # if((p.pose.position.x == 0 or p.pose.position.y == 0 or p.pose.position.z == 0) and boolNothing == 0):
-    #     boolcounter = boolcounter + 1
-    #     if(boolcounter > 30):
-    #         p.pose.position.x = 0
-    #         p.pose.position.y = 0
-    #         p.pose.position.z = 0
-    #         pub.publish(p)
-    #         if(boolcounter> 200):
-    #             boolcounter = 
-    #     rospy.logerr("Nothing found")
-    #else:
+            # Puts in a circle where the center of the object is 
+            cv2.circle(frame, center, 5, (255, 0, 0), 2)
+            cv2.circle(frame, (x,y), 5, (255, 0, 0), 2)
+            cv2.rectangle(frame, (x,y), (x+w,y+h), (0,200,100), 1)
+            #boxsize = "w%d h:%d" %(w,h)
+            coordinates= "x%d y:%d" %(xx,yy)
+            classname=classes[classIdx[i]]
+            classtext=f'Offset: {classname}'
+            curr = (x+20,y+w+20)
+            cv2.putText(frame,classtext,curr, font, 1,(255,0,0),2,cv2.LINE_4)
+            #disttext = "%Z:.3fm" %(Z)
+            cv2.putText(frame,coordinates,(xx,yy), font, 1,(255,100,255),2,cv2.LINE_4)
+            cv2.putText(frame,coordinates,(xx,yy), font, 1,(255,100,255),2,cv2.LINE_4)
+            if(depth < shortestdist):
+                shortestdist = depth
+                # convert depth to real
+                X,Y,Z = convert_depth_to_phys_coord_using_realsense((xx+ERRORX),(yy),depth,aligned_info)  
+                currxx = xx
+                curryy = yy
+                conftext = "score:%.3f" %(conf[i]*100)
+                #send to a topic
+                p.header.stamp = rospy.Time.now()
+                p.pose.position.x = X
+                p.pose.position.y = Y
+                p.pose.position.z = Z
+                p.pose.orientation.x = x #sending the upper left x coordinate of the box to robot
+                p.pose.orientation.y = y #sending the upper left y coordinate of the box to robot
+                p.pose.orientation.z = w #sending the width of the box to robot
+                p.pose.orientation.w = d #sending the height of the box to robot
     try:
         curr1 = (p.pose.orientation.x,p.pose.orientation.y)
         curr2 = (p.pose.orientation.x+p.pose.orientation.z, p.pose.orientation.y+p.pose.orientation.w)
@@ -253,32 +287,6 @@ def image_callback(img_msg):
     cv_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
     # Show the image
     
-# Class name
-classesFile = 'coco.names'
-classNames = []
-
-with open((path+classesFile), 'rt') as f:
-    classNames = f.read().rstrip('\n').split('\n')
-#modelConfiguration ='/home/eidur14/catkin_ws/src/neuralnet/yolov4.cfg' #'yolov4.cfg' # 
-modelConfiguration ='/home/arono16/yolo-obj_new.cfg' #'yolov4.cfg' # 
-#modelWeights ='/home/arono16/catkin_ws/src/neuralnet/yolov4.weights'
-modelWeights ='/home/arono16/results/firstneuralnetwork/yolo-obj_new_last.weights'
-#modelWeights ='/home/arono16/results/yolo-obj_new_last.weights'
-#modelWeights ='/home/arono16/results/secondneuralnetwork/yolo-obj_new_37000.weights'
-#modelWeights ='/home/eidur14/catkin_ws/src/neuralnet/yolov4.weights'
-#modelWeights ='/home/arono16/results/yolo-obj_new_23000.weights'
-#modelWeights ='/home/arono16/results/v1multipleNetwork/yolo-obj_new_30000.weights'
-
-#modelConfiguration ='yolov4.cfg' 
-#modelWeights ='yolov4.weights' 
-
-net = cv2.dnn.readNet((modelConfiguration), (modelWeights))
-#net = cv2.dnn.readNet((path+modelConfiguration), (path+modelWeights))
-net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
-
-
-
 # Initalize a subscriber to the "/camera/rgb/image_raw" topic with the function "image_callback" as a callback
 sub_image = rospy.Subscriber("/camera/color/image_raw", Image, image_callback, queue_size = 1, buff_size=2**24)
     
