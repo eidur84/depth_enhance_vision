@@ -51,10 +51,6 @@ classes=['-20','-15','-10','-5','0','5','10','15','20','25','30']
 counter = 0
 nrAvg = 0
 fps = 0.0
-timestart = time.time()
-timeend = 0.0
-elapsed = 0.0
-fpsAvg = np.zeros(10)
 wh = 640
 confThrsh = 0.2 #0.95
 scoreThrsh = 0.3
@@ -70,7 +66,7 @@ boolcounter = 0
 font = cv2.FONT_HERSHEY_PLAIN
 
 # Initialize the ROS Node named 'opencv_example', allow multiple nodes to be run with this name
-rospy.init_node('pandacamera', anonymous=True)
+rospy.init_node('vision', anonymous=True)
 
 # Print "Hello ROS!" to the Terminal and to a ROS Log file located in ~/.ros/log/loghash/*.log
 rospy.loginfo("Starting depth subscriber!")

@@ -31,7 +31,7 @@ np.set_printoptions(threshold=np.inf)
 #modelConfiguration ='/home/eidur14/catkin_ws/src/neuralnet/yolov4.cfg' #'yolov4.cfg' # 
 #modelConfiguration ='/home/arono16/yolo-obj_new.cfg' #'yolov4.cfg' # 
 #modelWeights ='/home/arono16/catkin_ws/src/neuralnet/yolov4.weights'
-modelWeights ='depthregression_largestdimension.onnx'
+modelWeights ='depthregression_fromscratch.onnx'
 
 modelpath=os.path.join(path,modelWeights)
 
@@ -43,9 +43,6 @@ net =  cv2.dnn.readNet(modelpath)
 #net = cv2.dnn.readNet((path+modelConfiguration), (path+modelWeights))
 net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
 net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
-
-# Offset classes
-classes=['-17.5','-12.5','-7.5','-2.5','2.5','7.5','12.5','17.5','22.5','27.5']
 
 # Global variables
 counter = 0
@@ -113,10 +110,10 @@ def findObjects(frame,msg, aligned_info):
     conf = []
     cls_score=[]
 
-    bbox = np.array([])
-    classIdx = np.array([])
-    conf = np.array([])
-    cls_score=np.array([])
+    # bbox = np.array([])
+    # classIdx = np.array([])
+    # conf = np.array([])
+    # cls_score=np.array([])
 
     #for output in outputs:
     #    for det in output:
@@ -139,6 +136,7 @@ def findObjects(frame,msg, aligned_info):
                 x, y = int((row[0]*xscale) - w/2), int((row[1]*yscale) - w/2)
                 #x, y = int((row[0]*xscale) - w/2), int((row[1]*yscale) - h/2)
                 bbox.append([x,y,w,d])
+                print(f'{[x,y,w,d]} - confidence: {confidence}')
                 classIdx.append(classId)
                 conf.append(float(confidence))
                 cls_score.append(class_score)
@@ -149,10 +147,6 @@ def findObjects(frame,msg, aligned_info):
 
     
     idc = cv2.dnn.NMSBoxes(bbox, conf, confThrsh, NMSThrs)
-    print(idc.shape)
-    print(idc)
-    print(conf[idc])
-    print(cls_score[idc])
     for i in idc:
         box = bbox[i]
         x,y,w,d = box[0], box[1], box[2], box[3]
@@ -193,7 +187,7 @@ def findObjects(frame,msg, aligned_info):
         
         #coordinates= "x%d y:%d" %(xx,yy)
         #cv2.putText(frame,coordinates,(xx,yy), font, 1,(255,100,255),2,cv2.LINE_4)
-        classname=classes[classIdx[i]]
+        #classname=classes[classIdx[i]]
         #classtext=f'Offset: {classname}'
         classtext=f'MDE depth: {d:.3f}'
         mdeloc = (30,30)
