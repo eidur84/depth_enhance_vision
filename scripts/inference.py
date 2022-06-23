@@ -14,8 +14,8 @@ import os
 # Reading yolo net
 path = '/home/eidur14/trainedweights'
 
-#modelWeights ='depthregression_fromscratch.onnx'
-modelWeights ='classdepth_first.onnx'
+modelWeights ='depthregression_fromscratch.onnx'
+#modelWeights ='depthregression_widthwidth_best.onnx'
 modelpath=os.path.join(path,modelWeights)
 
 net =  cv2.dnn.readNet(modelpath)
@@ -47,7 +47,7 @@ def classnr(camdepthoffset,minval,maxval,binsize):
 
 
 # Plotting camera offset in data and writing interesting parameters to a table
-def plotoffset(offsets,destdir):
+def plotoffset(offsets,destdir,accuracy):
 
     # Variables used in image paths
     suffix = datetime.now().strftime("%y%m%d_%H%M%S")
@@ -61,12 +61,12 @@ def plotoffset(offsets,destdir):
     avgoffset=np.mean(offsets)
     stdoffset=np.std(offsets)
 
-    print(f'# samples: {numsamples} - minimum offset: {minval} - maximum offset {maxval} - average offset {avgoffset} - std offset {stdoffset}')
+    print(f'# samples: {numsamples} - minimum offset: {minval} - maximum offset {maxval} - average offset {avgoffset} - avg accuracy {accuracy} - std offset {stdoffset}')
 
     # Data for csv prepared
-    list_row_append = [(numsamples,minval,maxval,avgoffset,stdoffset)]
+    list_row_append = [(numsamples,minval,maxval,avgoffset,accuracy,stdoffset)]
  
-    dtype = [('Samples in dataset', np.uint),('Min offset', np.float), ('Max offset', np.float),('Average offset', np.float),('Standard deviation', np.float)]
+    dtype = [('Samples in dataset', np.uint),('Min offset', np.float), ('Max offset', np.float),('Average offset', np.float),('Average accuracy',np.float),('Standard deviation', np.float)]
   
     data = np.array(list_row_append, dtype=dtype)
 
@@ -74,11 +74,11 @@ def plotoffset(offsets,destdir):
 
     # Write the results to a csv
     with open(csvpath,'a+') as csvfile:
-        np.savetxt(csvfile,data,delimiter=',',fmt=['%d' , '%.2f', '%.2f', '%.2f','%.2f'], comments='')
+        np.savetxt(csvfile,data,delimiter=',',fmt=['%d' , '%.2f', '%.2f', '%.2f','%.2f','%.2f'], comments='')
 
     plt.figure()
     plt.hist(offsets,np.arange(minval,maxval+1,0.5),color='blue',edgecolor='black',linewidth=1,zorder=3)
-    plt.title("MDE offset from pickpoint")
+    plt.title("MDE offset from pickpoint - Test set")
     plt.grid(axis='y',color='black',linestyle='--',linewidth=0.2, zorder=0)
     _ = plt.xlabel('MDE depth offset (mm)')
     _ = plt.ylabel('Number of occurences')
@@ -126,12 +126,11 @@ def getdepth(frame,counter,dest):
                  
             if class_score > scoreThrsh:
                 # w, d = int(row[2]*xscale), row[3]/wh
-                w, h = int(row[2]*xscale), int(row[3]*yscale)
-                print(h)
+                w, d = int(row[2]*xscale), float(row[3]/wh)
                 x, y = int((row[0]*xscale) - w/2), int((row[1]*yscale) - w/2)
                 #print(f'{[x,y,w,d],[classId,float(confidence),class_score]} - confidence: {confidence}')
                 #bbox.append([x,y,w,d])
-                bbox.append([x,y,w,h])
+                bbox.append([x,y,w,d])
                 classIdx.append(classId)
                 conf.append(float(confidence)) 
 
@@ -150,32 +149,32 @@ def getdepth(frame,counter,dest):
         thebox = bbox[winnerbbId]
         #print(thebox)
         #x,y,w,d = int(thebox[0]), int(thebox[1]), int(thebox[2]), thebox[3]
-        x,y,w,h = int(thebox[0]), int(thebox[1]), int(thebox[2]), int(thebox[3])
+        x,y,w,d = int(thebox[0]), int(thebox[1]), int(thebox[2]), thebox[3]
         # Square bounding box
         xx = int(x+(w/2))# Center point of object
-        yy = int(y+(h/2))# Center point of object
+        yy = int(y+(w/2))# Center point of object
         center = (xx,yy)
         
         #coordinates= "x%d y:%d" %(xx,yy)
         #cv2.putText(frame,coordinates,(xx,yy), font, 1,(255,100,255),2,cv2.LINE_4)
-        classname=classes[winnerbbId]
-        classtext=f'Offset: {classname}'
-        #classtext=f'MDE depth: {d:.3f}'
+        #classname=classes[winnerbbId]
+        #classtext=f'Offset: {classname}'
+        classtext=f'MDE depth: {d:.3f}'
         mdeloc = (30,30)
-        #camdepthloc=(30,50)
-        #camdepthtext=f'Camera depth: {x:.3f}'
+        camdepthloc=(30,50)
+        camdepthtext=f'Camera depth: {x:.3f}'
         #cv2.putText(frame,classtext,mdeloc, font, 1,(0,255,255),2,cv2.LINE_4)
         cv2.putText(frame,classtext,mdeloc, font, 1,(0,255,255),2,cv2.LINE_4)
         #cv2.putText(frame,camdepthtext,camdepthloc, font, 1,(0,255,255),2,cv2.LINE_4)
         
         cv2.circle(frame, (xx,yy), 5, (0, 0, 255), 3)
         curr1 = (x,y)
-        curr2 = (x+w, y+h)
+        curr2 = (x+w, y+w)
         cv2.rectangle(frame, curr1, curr2, (0,255,255), 2)
         #show_image(frame)
         cv2.imwrite(dest+"/"+str(counter)+'.png', frame)
         #cv2.waitKey(5000)
-        return h
+        return d
     else:
         return 0
 
@@ -225,7 +224,7 @@ if __name__ == '__main__':
     except:
         print("Directory already exists") 
 
-    srcfolder="newdata"
+    srcfolder="testdata"
 
     try:
         os.mkdir(destdir_images)
@@ -239,13 +238,19 @@ if __name__ == '__main__':
     # Counter and lists initialized
     counter=0
     cameraoffset=[]
+    avgpcterror=[]
     classnames=[]
     avgclassoffset=[]
+    boxmde=[]
+    boxreal=[]
 
     for subdir, dirs, files in os.walk(sourcedir):
         # Adding subfolder to a vector to spot problematic products
         classnames.append(os.path.basename(subdir))
         depthoffsetvals=[]
+        realdepth=[]
+        mdedepth=[]
+        errorvals=[]
         for file in files:
             # Filename at destination folder
             newfn = str(counter).zfill(4)
@@ -274,12 +279,18 @@ if __name__ == '__main__':
                 # Depth from the dataset to compare to estimated depth from NN
                 depth=float(splitter[5])
                 camdepth=float(splitter[6])
-                # If a detection is not made
+                # If a detection is made
                 if mde > 0:
                     depthoffset=(mde-depth)*1000
+                    pcterror=(abs(depthoffset)/(depth*1000))
+                    errorvals.append(pcterror)
                     depthoffsetvals.append(depthoffset)
                     cameraoffset.append(depthoffset)
+                    realdepth.append(depth)
+                    mdedepth.append(mde)
+
                     print(f'Camera offset: {depthoffset}')
+                    print(f'error: {pcterror}')
                 else:
                     print("Nothing found")
                     continue
@@ -291,16 +302,29 @@ if __name__ == '__main__':
             
             counter +=1
             print(counter)
+        # Collecting average offsets for each products - offset and error
         depthoffsetvals=np.asarray(depthoffsetvals)
         avgoffset=np.mean(depthoffsetvals)
         avgclassoffset.append(avgoffset)
 
+        errorvals=np.asarray(errorvals)
+        avgerror=np.mean(errorvals)
+        avgpcterror.append(avgerror)
+
+        boxmde.append(mdedepth)
+        boxreal.append(realdepth)
+
     # Removing the parent directory
     avgclassoffset=np.asarray(avgclassoffset[1:])
     classnames=np.asarray(classnames[1:])
+    avgpcterror=np.asarray(avgpcterror[1:])
+    boxmde=boxmde[1:]
+    boxreal=boxreal[1:]
 
     print(avgclassoffset)
     print(classnames)
+
+    print(f'Avg offset: {np.mean(avgclassoffset)} - Avg accuracy: {np.mean(1-avgpcterror)*100}')
 
     # Sorting the array to find the highest and lowest offset
     sortidx=np.argsort(avgclassoffset)
@@ -308,18 +332,22 @@ if __name__ == '__main__':
 
     topoverestimate=classnames[sortidx]
     topovervals=avgclassoffset[sortidx]
-    topunderestimate=classnames[sortidxflipped]
-    topundervals=avgclassoffset[sortidxflipped]
 
-    print(topoverestimate)
-    print(topovervals)
-    print(topunderestimate)
-    print(topundervals)
+    # print(topoverestimate)
+    # print(topovervals)
 
 
     # Top and bottom 10 in terms of offsets
 
 
     # Offsets between camera depth and measured depth plotted in a histogram
-    plotoffset(cameraoffset,destdir)
-    
+    plotoffset(cameraoffset,destdir,np.mean(1-avgpcterror))
+    plt.figure()
+    plt.boxplot(boxmde,labels=classnames)
+    plt.title("MDE estimations - Test data")
+    plt.show()
+    plt.figure()
+    plt.title("Measured values - Test data")
+    plt.boxplot(boxreal,labels=classnames)
+    plt.show()
+  
